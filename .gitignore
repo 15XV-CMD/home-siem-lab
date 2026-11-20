@@ -1,0 +1,18 @@
+# Credentials and secrets: never commit
+*passwords*
+wazuh-install-files.tar
+*.key
+*.pem
+
+# VM and installer files: far too big for GitHub
+*.vmdk
+*.vmx
+*.vmsn
+*.vmem
+*.nvram
+*.iso
+*.7z
+
+# Windows junk files
+Thumbs.db
+desktop.ini
