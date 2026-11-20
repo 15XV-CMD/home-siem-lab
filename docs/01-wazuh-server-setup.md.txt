@@ -1,0 +1,25 @@
+# 01 – Wazuh Server Setup
+
+## Environment
+- Host: Windows 11, 16 GB RAM, VMware Workstation Pro
+- VM: Ubuntu Server 26.04 LTS, 6 GB RAM, 4 vCPU, 50 GB disk (LVM disabled), NAT network
+- Wazuh version: 4.14 (all-in-one: indexer, manager, dashboard)
+
+## Steps
+1. Installed Ubuntu Server with OpenSSH enabled
+2. Managed the server over SSH from Windows Terminal
+3. Ran `sudo apt update && sudo apt upgrade -y`
+4. Installed Wazuh with the official installation assistant:
+   `curl -sO https://packages.wazuh.com/4.14/wazuh-install.sh && sudo bash ./wazuh-install.sh -a`
+5. Accessed the dashboard at `https://<server-ip>` from the host browser
+
+## Troubleshooting
+| Issue | Cause | Fix |
+|---|---|---|
+| SSH "Permission denied" | Password mismatch | Reset password with `sudo passwd` on the VM console |
+| Installer failed with `<?xml` syntax error | Generic `4.x` URL returned an XML error page instead of the script | Used the version-specific URL (`/4.14/`) |
+| Installer warning: system not in recommended list | Ubuntu 26.04 not yet officially supported by Wazuh 4.14 | Proceeded with warning; all services verified running |
+| Dashboard timed out in browser | Dashboard service still starting | Checked services with `systemctl status`, restarted dashboard, waited ~2 minutes |
+
+## Verification
+All three services confirmed `active (running)` via `systemctl status`.
