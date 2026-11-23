@@ -1,0 +1,49 @@
+# 02 – Windows 11 Victim Setup
+
+## Environment
+- VM: Windows 11 Enterprise (evaluation), 4 GB RAM, 2 vCPU, 64 GB disk, NAT network
+- Virtual TPM enabled (required for Windows 11 in VMware)
+- Local account created via "Domain join instead"
+- VMware Tools installed for clipboard and display support
+
+## Sysmon
+- Sysmon (Microsoft Sysinternals) installed with the community config by
+  [SwiftOnSecurity/sysmon-config](https://github.com/SwiftOnSecurity/sysmon-config)
+- Install command: `Sysmon64.exe -accepteula -i sysmonconfig-export.xml`
+- Verified with `Get-Service Sysmon64`
+
+## Wazuh agent
+- Deployed via Dashboard → Agents management → Deploy new agent (Windows MSI)
+- Manager address: 192.168.151.10 (static IP)
+- Agent name: WIN11-VICTIM
+
+## Sysmon log collection
+Added to `C:\Program Files (x86)\ossec-agent\ossec.conf`:
+```xml
+<localfile>
+  <location>Microsoft-Windows-Sysmon/Operational</location>
+  <log_format>eventchannel</log_format>
+</localfile>
+```
+Verified in Threat Hunting with the query:
+`data.win.system.channel:Microsoft-Windows-Sysmon/Operational`
+
+## Initial alert triage
+The first alerts after deployment were caused by the agent installation itself:
+
+| Rule ID | Description | Level | Verdict |
+|---|---|---|---|
+| 92205 | PowerShell created an executable in Windows root folder | 9 | Benign – MSI installer |
+| 92066 | SecEdit.exe launched by powershell.exe | 4 | Benign – agent install process |
+| 92031 | Discovery activity executed | 3 | Benign – setup commands |
+| 92058 | Application Compatibility Database launched (T1546.011 – Application Shimming) | 12 | Benign – sdbinst.exe run by Windows Program Compatibility Assistant (rundll32 PcaSvc.dll) as SYSTEM |
+
+These were triaged as **false positives**. Expected activity from a legitimate
+admin action can match attacker-like detection rules, which is why alert context
+matters.
+
+## Screenshots
+- `screenshots/02-agent-active.png`
+- `screenshots/02b-sysmon-running.png`
+- `screenshots/03-sysmon-events.png`
+- `screenshots/03b-alert-details.png`
