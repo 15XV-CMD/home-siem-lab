@@ -20,6 +20,8 @@
 | Installer failed with `<?xml` syntax error | Generic `4.x` URL returned an XML error page instead of the script | Used the version-specific URL (`/4.14/`) |
 | Installer warning: system not in recommended list | Ubuntu 26.04 not yet officially supported by Wazuh 4.14 | Proceeded with warning; all services verified running |
 | Dashboard timed out in browser | Dashboard service still starting | Checked services with `systemctl status`, restarted dashboard, waited ~2 minutes |
+| Forgot Ubuntu password | — | Reset via GRUB recovery mode root shell (`mount -o remount,rw /`, `passwd`) |
+| Dashboard unreachable after reboot | DHCP gave the server a new IP | Set a static IP with netplan (`/etc/netplan/99-static.yaml`) |
 
 ## Verification
 All three services confirmed `active (running)` via `systemctl status`.
