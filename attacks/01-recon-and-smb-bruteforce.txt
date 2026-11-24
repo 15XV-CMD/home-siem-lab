@@ -1,0 +1,97 @@
+# Attack 01 – Network Recon and SMB Brute Force
+
+## Objective
+Simulate an external attacker discovering services on a Windows endpoint, then attempting to guess
+credentials over SMB, and assess how well Wazuh detects each stage.
+
+## Setup
+| | |
+|---|---|
+| Attacker | Kali Linux (192.168.151.128) |
+| Target | WIN11-VICTIM (192.168.151.131), Windows 11 Enterprise 24H2, build 26100 |
+| Tools | Nmap, NetExec |
+| MITRE ATT&CK | T1046 Network Service Discovery, T1110.001 Brute Force: Password Guessing |
+
+## Attack
+
+### 1. Recon
+`nmap -sS -sV 192.168.151.131`
+
+| Port | Service |
+|---|---|
+| 135/tcp | Microsoft Windows RPC |
+| 139/tcp | NetBIOS session service |
+| 445/tcp | SMB (microsoft-ds) |
+| 5357/tcp | Microsoft HTTPAPI (WSD / SSDP-UPnP) |
+
+996 ports were filtered by Windows Firewall. SMB (445) was identified as the target for credential attacks.
+
+### 2. SMB brute force
+5 fake usernames × 5 common passwords = 25 attempts. Fake usernames were used deliberately so that
+no real account would be locked out.
+
+`nxc smb 192.168.151.131 -u users.txt -p passwords.txt --continue-on-success -t 1 --smb-timeout 10`
+
+All 25 attempts returned `STATUS_LOGON_FAILURE`.
+
+**Observation – Windows SMB authentication rate limiter:** the first run (default settings, parallel
+threads) mostly failed with NETBIOS timeouts. Windows 11 24H2 delays each failed SMB authentication by
+~2 seconds, which exceeded NetExec's 2-second default SMB timeout. Running single-threaded with a
+10-second timeout succeeded. This is a built-in mitigation that significantly slows brute force and
+password spraying.
+
+## Detection
+
+### Recon: not detected
+During the scan window (13:03:14–13:03:31), no alerts were generated for WIN11-VICTIM. Routine events
+at 13:02 (logon, privilege assignment and logoff from local admin activity) confirm the agent and
+manager were healthy, so this is a genuine gap: Windows does not log inbound connection attempts by
+default.
+
+**Validating the negative result:** an initial post-scan check showed no events at all from the
+victim. This was traced to the Wazuh manager API being unavailable at the time. A later scan attempt
+also failed because the victim VM had entered sleep mode (fixed with
+`powercfg /change standby-timeout-ac 0`). The scan was repeated with the pipeline verified healthy, so
+the absence of alerts reflects a real detection gap rather than missing data.
+
+### Brute force: detected
+75 alerts were generated from Windows Security Event ID 4625 (failed logon):
+
+| Rule | Description | Level | MITRE | Notes |
+|---|---|---|---|---|
+| 60122 | Logon Failure – Unknown user or bad password | 5 | T1531 | One per failed attempt |
+| 60204 | Multiple Windows Logon Failures | 10 | T1110 | Correlation rule – fires after 8 failures |
+
+Key fields from the alerts:
+- `ipAddress: 192.168.151.128` – correctly identified the attacker
+- `logonType: 3` – network logon (remote)
+- `authenticationPackageName: NTLM`
+- `subStatus: 0xC0000064` – username does not exist, indicating username guessing
+- Events ~2 seconds apart, consistent with the SMB rate limiter
+
+## Analysis & detection gaps
+1. **Inconsistent MITRE mapping:** the individual failed-logon rule (60122) maps to T1531 Account
+   Access Removal (Impact), likely because repeated failures can trigger account lockout. However,
+   this describes a possible side effect rather than the attacker's behaviour. The correlation rule
+   (60204) correctly maps to T1110 Brute Force (Credential Access). An analyst viewing only individual
+   events could be misled about the attacker's objective. A custom rule will align single-event
+   detections with T1110.
+2. **Port scans not visible:** Windows does not log inbound connection attempts by default.
+   Fix: enable Windows Firewall logging or deploy a network IDS (e.g. Suricata) feeding Wazuh.
+3. **No automated response:** the attack was detected but not stopped. Fix: Wazuh active response to
+   block the source IP when rule 60204 fires.
+
+## Evidence
+| Screenshot | Shows |
+|---|---|
+| `screenshots/04-nmap-scan.png` | Nmap service scan results |
+| `screenshots/04b-nmap-wazuh-result.png` | Wazuh events during the scan window (no detection) |
+| `screenshots/05-smb-bruteforce-ratelimited.png` | Initial attempt throttled by the SMB rate limiter |
+| `screenshots/05-smb-bruteforce-kali.png` | Completed 25-attempt brute force |
+| `screenshots/05b-bruteforce-alerts.png` | 75 alerts in Wazuh Threat Hunting |
+| `screenshots/05c-bruteforce-alert-detail.png` | Event 4625 details – attacker IP, logon type |
+| `screenshots/05d-bruteforce-alert-detail.png` | Event 4625 details – event message |
+| `screenshots/05e-bruteforce-alert-detail.png` | Rule 60122 with T1531 mapping |
+| `screenshots/05f-bruteforce-correlation-detail.png` | Rule 60204 alert details |
+| `screenshots/05g-bruteforce-correlation-detail.png` | Rule 60204 previous output |
+| `screenshots/05h-bruteforce-correlation-detail.png` | Rule 60204 with T1110 mapping, frequency 8 |
